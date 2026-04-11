@@ -2,7 +2,6 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  /* Light theme */
   --bg: #f5f5f0;
   --surface: #ffffff;
   --surface2: #f0efe9;
@@ -19,7 +18,6 @@
   --warn: #b07d10;
   --warn-bg: #fdf8ee;
 
-  /* Diff colors */
   --diff-add: #1a6b3c;
   --diff-add-bg: #eaf4ee;
   --diff-del: #c0392b;
@@ -145,14 +143,12 @@ body {
   white-space: nowrap;
 }
 .btn:hover { background: var(--surface2); border-color: var(--border2); }
-.btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 .btn.danger { color: var(--error); border-color: var(--error); }
 .btn.danger:hover { background: var(--error-bg); }
+.btn.warn { color: var(--warn); border-color: var(--warn); }
+.btn.warn:hover { background: var(--warn-bg); }
 .btn.sm { padding: 4px 10px; font-size: 0.78rem; }
 
 /* ─── Toolbar ─── */
@@ -165,16 +161,38 @@ body {
 }
 .toolbar-sep { width: 1px; height: 20px; background: var(--border); margin: 0 2px; }
 
+/* ─── Toggle label ─── */
+.toggle-label {
+  display: flex;
+  align-items: center;
+  font-size: 0.82rem;
+  color: var(--text2);
+  cursor: pointer;
+  user-select: none;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  transition: background 0.15s;
+}
+.toggle-label:hover { background: var(--surface2); }
+.toggle-label input[type="checkbox"] { accent-color: var(--accent); }
+
 /* ─── Editor Panel ─── */
 .editor-wrap {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+  /* overflow:hidden clips the border-radius but we must NOT clip the textarea scroll */
   overflow: hidden;
   display: flex;
   flex-direction: column;
   box-shadow: var(--shadow);
+  /* Critical: flex children in a grid must be able to shrink below content size */
+  min-width: 0;
 }
+
 .editor-header {
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
@@ -183,14 +201,31 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  /* prevent header from growing wider than the panel */
+  min-width: 0;
+  overflow: hidden;
 }
 .editor-title { font-size: 0.78rem; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 0.05em; }
-.editor-actions { display: flex; gap: 4px; }
+.editor-actions { display: flex; gap: 4px; flex-shrink: 0; }
 
-.editor-body { position: relative; display: flex; flex: 1; }
+/* The editor-body holds the gutter + textarea stack */
+.editor-body {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  /* background colour shows through the transparent textarea */
+  background: var(--surface);
+  /* Give it an explicit height so the absolutely positioned textarea fills it */
+  min-height: 360px;
+}
+
+/* ─── Line-number gutter ─── */
 .line-numbers {
   padding: 12px 0;
   min-width: 42px;
+  width: 42px;
+  flex-shrink: 0;
   text-align: right;
   padding-right: 10px;
   background: var(--surface2);
@@ -200,27 +235,69 @@ body {
   color: var(--text3);
   line-height: 1.6;
   user-select: none;
+  /* scrollTop is synced by JS — hide scrollbar */
   overflow: hidden;
+  /* must not shrink */
+  flex-shrink: 0;
 }
-.line-numbers span { display: block; padding: 0 8px 0 4px; }
+.line-numbers span { display: block; padding: 0 8px 0 4px; height: 22.4px; }
 .line-numbers span.err-line { color: var(--error); background: var(--error-bg); }
 
-textarea.json-input {
+/* ─── Textarea wrapper — fills remaining width, provides scroll context ─── */
+.editor-textarea-wrap {
+  position: relative;
   flex: 1;
+  min-width: 0;
+  overflow: hidden; /* the textarea itself scrolls; this just clips the overlay */
+}
+
+/* ─── THE TEXTAREA ─── */
+textarea.json-input {
+  /* fill wrapper completely */
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+
   padding: 12px;
   border: none;
   outline: none;
-  background: var(--surface);
+  /* transparent so error highlight overlay shows through */
+  background: transparent;
   color: var(--text);
   font-family: var(--mono);
   font-size: 0.82rem;
+  /* line-height must stay in sync with LINE_HEIGHT constant in JsonEditor.jsx (1.6 × 14px = 22.4px) */
   line-height: 1.6;
   resize: none;
   tab-size: 2;
-  min-height: 360px;
+  box-sizing: border-box;
+
+  /* ── THE CRITICAL TRIO — prevents wrapping, enables H-scroll ── */
+  white-space: pre;
+  overflow-x: auto;
+  overflow-y: auto;
+
+  /* belt-and-suspenders */
+  word-wrap: normal;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 textarea.json-input::placeholder { color: var(--text3); }
-textarea.json-input.has-error { background: color-mix(in srgb, var(--error-bg) 40%, var(--surface) 60%); }
+
+/* ─── Error highlight overlay ─── */
+.editor-error-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  line-height: 1.6;
+  padding: 12px;
+  /* must not wrap either */
+  white-space: pre;
+}
 
 /* ─── Status bar ─── */
 .status-bar {
@@ -232,12 +309,13 @@ textarea.json-input.has-error { background: color-mix(in srgb, var(--error-bg) 4
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
 }
 .status-bar .ok { color: var(--accent); font-weight: 500; }
 .status-bar .err { color: var(--error); font-weight: 500; }
 .status-bar .info { color: var(--text3); }
 
-/* ─── Error Banner ─── */
+/* ─── Error / Info banners ─── */
 .error-banner {
   margin-top: 8px;
   padding: 10px 14px;
@@ -253,13 +331,42 @@ textarea.json-input.has-error { background: color-mix(in srgb, var(--error-bg) 4
 }
 .error-banner .err-icon { flex-shrink: 0; margin-top: 1px; }
 
+.info-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  color: var(--accent);
+  font-size: 0.82rem;
+  margin-bottom: 10px;
+}
+
+/* ─── Spinner ─── */
+.spinner {
+  display: inline-block;
+  width: 14px; height: 14px;
+  border: 2px solid var(--border2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
 /* ─── Formatter Page Layout ─── */
 .formatter-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
   align-items: start;
+  /* Both columns must be able to shrink */
+  min-width: 0;
 }
+.formatter-grid > * { min-width: 0; }
+
 @media (max-width: 900px) {
   .formatter-grid { grid-template-columns: 1fr; }
 }
@@ -285,20 +392,19 @@ textarea.json-input.has-error { background: color-mix(in srgb, var(--error-bg) 4
   font-family: var(--mono);
   font-size: 0.8rem;
   line-height: 1.7;
-  padding: 12px;
   overflow: auto;
   min-height: 360px;
-  max-height: 600px;
+  max-height: 520px;
+  position: relative;
+  padding: 0;
 }
-.tree-node { }
 .tree-row {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 4px;
   cursor: default;
   border-radius: 3px;
-  padding: 1px 4px;
-  margin-left: calc(var(--depth, 0) * 18px);
+  white-space: nowrap;
 }
 .tree-row:hover { background: var(--surface2); }
 .tree-toggle {
@@ -329,11 +435,15 @@ textarea.json-input.has-error { background: color-mix(in srgb, var(--error-bg) 4
   grid-template-columns: 1fr 1fr;
   gap: 16px;
   margin-bottom: 16px;
+  min-width: 0;
 }
+.compare-grid > * { min-width: 0; }
+
 @media (max-width: 900px) {
   .compare-grid { grid-template-columns: 1fr; }
 }
 
+/* ─── Diff Result ─── */
 .diff-result {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -356,7 +466,13 @@ textarea.json-input.has-error { background: color-mix(in srgb, var(--error-bg) 4
 .diff-dot.del { background: var(--diff-del); }
 .diff-dot.chg { background: var(--diff-chg); }
 
-.diff-body { padding: 12px; font-family: var(--mono); font-size: 0.8rem; overflow: auto; max-height: 600px; }
+.diff-body {
+  padding: 12px;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  overflow: auto;
+  max-height: 600px;
+}
 
 /* Side-by-side diff */
 .diff-side-grid {
@@ -379,15 +495,26 @@ textarea.json-input.has-error { background: color-mix(in srgb, var(--error-bg) 4
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
-.diff-side-body { padding: 12px; font-family: var(--mono); font-size: 0.8rem; line-height: 1.7; }
+.diff-side-body {
+  padding: 12px;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  line-height: 1.7;
+}
 
-/* Diff lines */
-.diff-line { padding: 1px 6px; border-radius: 3px; line-height: 1.7; white-space: pre-wrap; word-break: break-all; }
+/* Diff lines — MUST NOT wrap; panel handles horizontal scroll */
+.diff-line {
+  padding: 1px 6px;
+  border-radius: 3px;
+  line-height: 1.7;
+  white-space: pre;        /* no wrapping */
+  word-break: normal;
+  overflow-wrap: normal;
+}
 .diff-line.add { background: var(--diff-add-bg); color: var(--diff-add); }
 .diff-line.del { background: var(--diff-del-bg); color: var(--diff-del); text-decoration: line-through; opacity: 0.8; }
 .diff-line.chg { background: var(--diff-chg-bg); color: var(--diff-chg); }
 .diff-line.same { color: var(--text); }
-.diff-line.key { color: var(--text2); font-weight: 500; }
 
 /* Inline diff */
 .diff-inline { font-family: var(--mono); font-size: 0.8rem; line-height: 1.8; }
@@ -396,12 +523,16 @@ textarea.json-input.has-error { background: color-mix(in srgb, var(--error-bg) 4
 .diff-inline-symbol.add { color: var(--diff-add); }
 .diff-inline-symbol.del { color: var(--diff-del); }
 .diff-inline-symbol.chg { color: var(--diff-chg); }
-.diff-inline-content { flex: 1; white-space: pre-wrap; word-break: break-all; }
+.diff-inline-content {
+  flex: 1;
+  white-space: pre;
+  word-break: normal;
+  overflow-wrap: normal;
+}
 .diff-inline-content.add { background: var(--diff-add-bg); color: var(--diff-add); border-radius: 3px; padding: 0 4px; }
 .diff-inline-content.del { background: var(--diff-del-bg); color: var(--diff-del); border-radius: 3px; padding: 0 4px; text-decoration: line-through; }
 .diff-inline-content.chg { background: var(--diff-chg-bg); color: var(--diff-chg); border-radius: 3px; padding: 0 4px; }
 
-/* diff summary banner */
 .diff-summary {
   display: flex;
   gap: 16px;
@@ -444,16 +575,10 @@ textarea.json-input.has-error { background: color-mix(in srgb, var(--error-bg) 4
 .badge.add { background: var(--diff-add-bg); color: var(--diff-add); }
 .badge.del { background: var(--diff-del-bg); color: var(--diff-del); }
 .badge.chg { background: var(--diff-chg-bg); color: var(--diff-chg); }
-
-.section-header {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 12px;
-  flex-wrap: wrap;
-  gap: 8px;
-}
+.section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
 .section-title { font-size: 0.82rem; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 0.05em; }
 
-/* toast */
+/* ─── Toast ─── */
 .toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; }
 .toast {
   background: var(--text);
@@ -465,212 +590,57 @@ textarea.json-input.has-error { background: color-mix(in srgb, var(--error-bg) 4
   animation: toastIn 0.2s ease;
   max-width: 280px;
 }
-@keyframes toastIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
+@keyframes toastIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
-/* scrollbars */
+/* ─── Scrollbars ─── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: var(--surface2); }
 ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
 
-/* ─── New feature styles (v2) ──────────────────────────────────────────── */
-
-/* Warn button variant */
-.btn.warn {
-  color: var(--warn);
-  border-color: var(--warn);
-}
-.btn.warn:hover { background: var(--warn-bg); }
-
-/* Toggle label */
-.toggle-label {
-  display: flex;
-  align-items: center;
-  font-size: 0.82rem;
-  color: var(--text2);
-  cursor: pointer;
-  user-select: none;
-  gap: 4px;
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  transition: background 0.15s;
-}
-.toggle-label:hover { background: var(--surface2); }
-.toggle-label input[type="checkbox"] { accent-color: var(--accent); }
-
-/* Info banner (tolerant mode notice) */
-.info-banner {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 14px;
-  background: var(--accent-bg);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius);
-  color: var(--accent);
-  font-size: 0.82rem;
-  margin-bottom: 10px;
-}
-
-/* Spinner */
-.spinner {
-  display: inline-block;
-  width: 14px; height: 14px;
-  border: 2px solid var(--border2);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
-  flex-shrink: 0;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* ─── Auto-Fix Modal ─────────────────────────────────────────────────────── */
-
+/* ─── Auto-Fix Modal ─── */
 .modal-backdrop {
   position: fixed; inset: 0;
   background: rgba(0,0,0,0.45);
   z-index: 500;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: flex; align-items: center; justify-content: center;
   padding: 20px;
   backdrop-filter: blur(2px);
 }
-
 .modal {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
-  width: 100%;
-  max-width: 760px;
-  max-height: 88vh;
-  display: flex;
-  flex-direction: column;
+  width: 100%; max-width: 760px; max-height: 88vh;
+  display: flex; flex-direction: column;
   box-shadow: 0 20px 60px rgba(0,0,0,0.25);
   overflow: hidden;
 }
-
 .modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: flex; align-items: center; justify-content: space-between;
   padding: 14px 18px;
   border-bottom: 1px solid var(--border);
   background: var(--surface2);
   flex-shrink: 0;
 }
-
-.modal-title {
-  font-weight: 600;
-  font-size: 0.95rem;
-}
-
-.modal-section {
-  padding: 14px 18px 0;
-}
-
-.modal-section-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text3);
-  margin-bottom: 8px;
-}
-
-.fix-list {
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: 14px;
-}
-
-.fix-item {
-  font-size: 0.82rem;
-  color: var(--text);
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-}
-
+.modal-title { font-weight: 600; font-size: 0.95rem; }
+.modal-section { padding: 14px 18px 0; overflow: auto; }
+.modal-section-label { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); margin-bottom: 8px; }
+.fix-list { list-style: none; display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; }
+.fix-item { font-size: 0.82rem; color: var(--text); display: flex; align-items: flex-start; gap: 6px; }
 .fix-check { color: var(--accent); font-weight: 700; }
-
 .fix-diff {
-  font-family: var(--mono);
-  font-size: 0.78rem;
-  line-height: 1.65;
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: auto;
-  max-height: 320px;
-  padding: 10px 0;
-  margin-bottom: 14px;
+  font-family: var(--mono); font-size: 0.78rem; line-height: 1.65;
+  background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius);
+  overflow: auto; max-height: 320px; padding: 10px 0; margin-bottom: 14px;
 }
-
-.fix-diff-line {
-  display: flex;
-  align-items: flex-start;
-  gap: 0;
-  padding: 0 12px;
-  white-space: pre;
-  min-height: 22px;
-}
+.fix-diff-line { display: flex; align-items: flex-start; padding: 0 12px; white-space: pre; min-height: 22px; }
 .fix-diff-line.add  { background: var(--diff-add-bg); color: var(--diff-add); }
 .fix-diff-line.del  { background: var(--diff-del-bg); color: var(--diff-del); text-decoration: line-through; }
 .fix-diff-line.same { color: var(--text); }
 .fix-diff-line.ellipsis { color: var(--text3); font-style: italic; padding: 2px 12px; }
-
-.fix-diff-symbol {
-  width: 18px;
-  flex-shrink: 0;
-  font-weight: 700;
-  text-align: center;
-  user-select: none;
-}
-
+.fix-diff-symbol { width: 18px; flex-shrink: 0; font-weight: 700; text-align: center; user-select: none; }
 .modal-footer {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 14px 18px;
-  border-top: 1px solid var(--border);
-  background: var(--surface2);
-  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  padding: 14px 18px; border-top: 1px solid var(--border);
+  background: var(--surface2); flex-shrink: 0;
 }
-
-/* ─── Tree view adjustments for virtualisation ───────────────────────────── */
-
-.tree-root {
-  max-height: 520px;    /* fixed height for virtual scroll to work */
-  min-height: 300px;
-  overflow-y: auto;
-  overflow-x: auto;
-}
-
-/* Row hover must work with absolute positioning */
-.tree-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  cursor: default;
-  border-radius: 3px;
-  white-space: nowrap;
-}
-.tree-row:hover { background: var(--surface2); }
-
-/* ─── JsonEditor error highlight ────────────────────────────────────────── */
-
-/* Make textarea bg transparent so the overlay shows through */
-textarea.json-input {
-  background: transparent !important;
-}
-/* Container needs a background colour */
-.editor-body { background: var(--surface); }
-
