@@ -64,12 +64,29 @@ export function FormatterPage({ toast }) {
     toast('Minified!')
   }, [input, error, tolerant, normalizedSrc, handleChange, toast])
 
+  // Open modal preview
   const handleAutoFix = useCallback(() => {
     if (!input.trim()) return toast('Nothing to fix')
     const { fixed, changes, error: fixErr } = autoFixJson(input)
-    // Show modal even on partial fix
+    if (changes[0] === 'Already valid JSON — no fixes needed') {
+      return toast('Already valid — no fixes needed')
+    }
     setFixPreview({ fixed, changes, error: fixErr })
   }, [input, toast])
+
+  // Apply immediately without modal — the primary action button
+  const handleAutoFixDirect = useCallback(() => {
+    if (!input.trim()) return toast('Nothing to fix')
+    const { fixed, changes, error: fixErr } = autoFixJson(input)
+    if (changes[0] === 'Already valid JSON — no fixes needed') {
+      return toast('Already valid — no fixes needed')
+    }
+    handleChange(fixed)
+    const label = changes.length === 1
+      ? changes[0]
+      : `${changes.length} fixes applied`
+    toast(fixErr ? `Partially fixed (${fixErr})` : `✓ ${label}`)
+  }, [input, handleChange, toast])
 
   const applyFix = useCallback(() => {
     if (!fixPreview?.fixed) return
@@ -121,9 +138,25 @@ export function FormatterPage({ toast }) {
       <div className="toolbar">
         <button className="btn primary" onClick={handleFormat}  disabled={!input.trim() || loading}>Format</button>
         <button className="btn"         onClick={handleMinify}  disabled={!input.trim() || loading}>Minify</button>
-        <button className="btn warn"    onClick={handleAutoFix} disabled={!input.trim() || loading} title="Attempt to repair common JSON errors">
-          ✦ Auto-Fix
-        </button>
+        {/* Auto-Fix: split button — Apply directly (primary) + Preview (secondary) */}
+        <div className="split-btn" title="Auto-fix common JSON errors">
+          <button
+            className="btn warn split-btn-main"
+            onClick={handleAutoFixDirect}
+            disabled={!input.trim() || loading}
+          >
+            ✦ Auto-Fix
+          </button>
+          <button
+            className="btn warn split-btn-arrow"
+            onClick={handleAutoFix}
+            disabled={!input.trim() || loading}
+            title="Preview changes before applying"
+            aria-label="Preview auto-fix changes"
+          >
+            ▾
+          </button>
+        </div>
         <div className="toolbar-sep" />
 
         {/* Strict / Tolerant toggle */}
@@ -169,11 +202,11 @@ export function FormatterPage({ toast }) {
               </strong>
               {!tolerant && (
                 <button
-                  className="btn sm"
+                  className="btn sm warn"
                   style={{ marginLeft: 12 }}
-                  onClick={handleAutoFix}
+                  onClick={handleAutoFixDirect}
                 >
-                  Try Auto-Fix
+                  ✦ Auto-Fix
                 </button>
               )}
             </div>
