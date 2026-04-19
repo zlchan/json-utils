@@ -7,15 +7,19 @@
  *  2.  Strip comments                        (// and /* … * /)
  *  3.  Close unterminated SINGLE-quoted strings  (at newline — before singleToDouble)
  *  4.  Close unterminated DOUBLE-quoted strings  (at newline — BEFORE fixControlChars)
- *  5.  Fix control chars in double-quoted strings (now all strings are properly closed)
- *  6.  Extended literal normalisation        (True/False/None/yes/no/on/off/NaN/Infinity)
- *  7.  Fix invalid numbers                   (.5→0.5, 1.→1.0, -.5→-0.5, +5→5)
- *  8.  Single → double quotes
- *  9.  Quote unquoted object keys            (after {, after ,, after newline)
- * 10.  Insert missing colon                  (key-position strings only)
- * 11.  Remove trailing commas
- * 12.  Insert missing commas                 (newline + inline + direct adjacency)
- * 13.  Close unclosed brackets/braces        (positional recovery)
+ *  5.  Fix control chars in double-quoted strings
+ *  6.  Convert backtick template literals    (`str` → "str")
+ *  7.  Wrap bare function calls              (ObjectId("x") → "ObjectId(\"x\")")
+ *  8.  Fix numeric separators               (30_000 → 30000)
+ *  9.  Extended literal normalisation        (True/False/None/yes/no/on/off/NaN/Infinity)
+ *      NOTE: yes/no/on/off only replaced as VALUES via (?!\s*:) guard
+ * 10.  Fix invalid numbers                   (.5→0.5, 1.→1.0, -.5→-0.5, +5→5)
+ * 11.  Single → double quotes
+ * 12.  Quote unquoted object keys
+ * 13.  Insert missing colon
+ * 14.  Remove trailing commas
+ * 15.  Insert missing commas
+ * 16.  Close unclosed brackets/braces
  *
  * Returns: { fixed: string, changes: string[], error: string|null }
  */
@@ -38,17 +42,21 @@ export function autoFixJson(input) {
 
   src = src.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
 
-  apply('Removed // and /* */ comments',                                    stripComments)
-  apply('Closed unterminated single-quoted strings',                        closeUnterminatedSingleQuotes)
-  apply('Fixed control chars + closed unterminated double-quoted strings',  fixControlCharsInStrings)
-  apply('Normalised literals (True/False/None/yes/no/on/off/NaN/Infinity)', normalizeAllLiterals)
-  apply('Fixed non-standard number formats (.5→0.5, 1.→1.0, -.5→-0.5)',   fixNumbers)
-  apply('Converted single-quoted strings to double quotes',                 singleToDouble)
-  apply('Quoted unquoted object keys',                                      quoteUnquotedKeys)
-  apply('Inserted missing colons between keys and values',                  insertMissingColons)
-  apply('Removed trailing commas',                                          removeTrailingCommas)
-  apply('Inserted missing commas between values',                           insertMissingCommas)
-  apply('Closed unclosed brackets/braces',                                  closeUnclosed)
+  apply('Removed // and /* */ comments',                                       stripComments)
+  apply('Closed unterminated single-quoted strings',                          closeUnterminatedSingleQuotes)
+  apply('Fixed control chars + closed unterminated double-quoted strings',    fixControlCharsInStrings)
+  apply('Converted backtick template literals to strings',                    convertBackticks)
+  apply('Wrapped bare function calls as strings (ObjectId, ISODate, etc.)',   wrapBareFunctionCalls)
+  apply('Removed numeric separators (30_000 → 30000)',                        fixNumericSeparators)
+  apply('Normalised literals (True/False/None/yes/no/on/off/NaN/Infinity)',   normalizeAllLiterals)
+  apply('Fixed non-standard number formats (.5→0.5, 1.→1.0, -.5→-0.5)',     fixNumbers)
+  apply('Quoted hyphenated digit sequences (card numbers, SSNs, phone nos.)', fixHyphenatedNumbers)
+  apply('Converted single-quoted strings to double quotes',                   singleToDouble)
+  apply('Quoted unquoted object keys',                                        quoteUnquotedKeys)
+  apply('Inserted missing colons between keys and values',                    insertMissingColons)
+  apply('Removed trailing commas',                                            removeTrailingCommas)
+  apply('Inserted missing commas between values',                             insertMissingCommas)
+  apply('Closed unclosed brackets/braces',                                    closeUnclosed)
 
   if (isValidJson(src)) {
     if (changes.length === 0) changes.push('No changes needed')
@@ -76,6 +84,16 @@ function stripComments(src) {
     if (src[i] === "'") {
       const { str, end } = readSingleQuoted(src, i)
       result += str; i = end; continue
+    }
+    // Skip backtick template literals verbatim (convertBackticks runs after this pass)
+    if (src[i] === '`') {
+      let s = '`'; i++
+      while (i < src.length) {
+        const c = src[i]; s += c
+        if (c === '\\' && i + 1 < src.length) { s += src[i + 1]; i += 2; continue }
+        i++; if (c === '`') break
+      }
+      result += s; continue
     }
     if (src[i] === '/' && src[i + 1] === '/') {
       while (i < src.length && src[i] !== '\n') i++
@@ -199,7 +217,117 @@ function fixControlCharsInStrings(src) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pass 6 — Extended literal normalisation
+// Pass 6 — Convert backtick template literals → double-quoted strings
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * JavaScript template literals like `Bearer ${token}` are not valid JSON.
+ * Convert them to double-quoted strings, keeping template expressions as
+ * literal text (best-effort — we can't evaluate them).
+ */
+function convertBackticks(src) {
+  let result = '', i = 0
+  while (i < src.length) {
+    if (src[i] === '"') {
+      const { str, end } = readDoubleQuoted(src, i)
+      result += str; i = end; continue
+    }
+    if (src[i] === "'") {
+      const { str, end } = readSingleQuoted(src, i)
+      result += str; i = end; continue
+    }
+    if (src[i] === '`') {
+      let inner = ''; i++
+      while (i < src.length) {
+        const c = src[i]
+        if (c === '\\' && src[i + 1] === '`') { inner += '`'; i += 2; continue }
+        if (c === '`') { i++; break }
+        if (c === '"')  { inner += '\\"'; i++; continue }
+        if (c === '\n') { inner += '\\n'; i++; continue }
+        if (c === '\r') { inner += '\\r'; i++; continue }
+        if (c === '\t') { inner += '\\t'; i++; continue }
+        inner += c; i++
+      }
+      result += '"' + inner + '"'; continue
+    }
+    result += src[i++]
+  }
+  return result
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pass 7 — Wrap bare function calls as strings
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * MongoDB-style constructors and similar bare function calls are not valid JSON:
+ *   ObjectId("507f...") → "ObjectId(\"507f...\")"
+ *   ISODate("2023-01-15") → "ISODate(\"2023-01-15\")"
+ *
+ * Strategy: scan for UPPERCASE-starting IDENTIFIER( pattern outside strings.
+ * Only uppercase first letter to avoid false-positives on lowercase keywords.
+ */
+function wrapBareFunctionCalls(src) {
+  let result = '', i = 0
+  while (i < src.length) {
+    if (src[i] === '"') {
+      const { str, end } = readDoubleQuoted(src, i)
+      result += str; i = end; continue
+    }
+    // Uppercase letter could start a function call identifier
+    if (/[A-Z]/.test(src[i])) {
+      let ident = '', j = i
+      while (j < src.length && /[A-Za-z0-9_$]/.test(src[j])) { ident += src[j++] }
+      if (src[j] === '(' && ident.length > 1) {
+        // Scan to matching closing paren
+        let call = ident + '('; j++; let depth = 1
+        while (j < src.length && depth > 0) {
+          const c = src[j]
+          if (c === '"') {
+            const { str: qs, end: qe } = readDoubleQuoted(src, j)
+            call += qs; j = qe; continue
+          }
+          if (c === "'") {
+            const { str: ss, end: se } = readSingleQuoted(src, j)
+            call += ss; j = se; continue
+          }
+          if (c === '(') depth++
+          if (c === ')') { depth--; if (depth === 0) { call += c; j++; break } }
+          call += c; j++
+        }
+        const escaped = call.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+        result += '"' + escaped + '"'; i = j; continue
+      }
+      result += ident; i = j; continue
+    }
+    result += src[i++]
+  }
+  return result
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pass 8 — Fix numeric separators
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * JavaScript allows underscores in numeric literals (30_000, 1_000_000).
+ * JSON does not. Strip them.
+ */
+function fixNumericSeparators(src) {
+  return transformOutsideStrings(src, chunk => {
+    // Loop until stable — handles multi-underscore literals like 1_000_000
+    let prev = chunk
+    while (true) {
+      const next = prev.replace(/(\d+)_(\d+)/g, '$1$2')
+      if (next === prev) break
+      prev = next
+    }
+    return prev
+  })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pass 9 — Extended literal normalisation
 // ─────────────────────────────────────────────────────────────────────────────
 
 function normalizeAllLiterals(src) {
@@ -209,10 +337,12 @@ function normalizeAllLiterals(src) {
       .replace(/\bFalse\b/g, 'false')
       .replace(/\bNone\b/g,  'null')
       .replace(/\bundefined\b/g, 'null')
-      .replace(/\byes\b/gi,  'true')
-      .replace(/\bno\b/gi,   'false')
-      .replace(/\bon\b/gi,   'true')
-      .replace(/\boff\b/gi,  'false')
+      // yes/no/on/off: guard with (?!\s*:) to skip keys, and (?<![-\w]) to skip
+      // hyphenated identifiers like "runs-on", "feature-off", "depends_on"
+      .replace(/(?<![-\w])\byes\b(?!\s*:)/gi,  'true')
+      .replace(/(?<![-\w])\bno\b(?!\s*:)/gi,   'false')
+      .replace(/(?<![-\w])\bon\b(?!\s*:)/gi,   'true')
+      .replace(/(?<![-\w])\boff\b(?!\s*:)/gi,  'false')
       .replace(/(?<![.\d])-Infinity\b/g, 'null')
       .replace(/\bInfinity\b/g,          'null')
       .replace(/\bNaN\b/g,               'null')
@@ -220,7 +350,7 @@ function normalizeAllLiterals(src) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pass 7 — Fix invalid number formats
+// Pass 10 — Fix invalid number formats
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -240,7 +370,31 @@ function fixNumbers(src) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pass 8 — Single → double quotes
+// Pass 10b — Quote hyphenated digit sequences (card numbers, SSNs, phone nos.)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Bare hyphenated digit sequences are not valid JSON but are extremely common
+ * in real data: credit card numbers, SSNs, phone numbers, IDs.
+ *
+ *   "cardNumber": 1234-5678-9012-3456  →  "cardNumber": "1234-5678-9012-3456"
+ *   "ssn": 123-45-6789                →  "ssn": "123-45-6789"
+ *
+ * Guard: only matches at value positions (after :  ,  [  or whitespace).
+ * Never touches negative numbers like -5 (single leading dash, not digits-dash-digits).
+ * Never modifies content inside strings (transformOutsideStrings guarantees this).
+ */
+function fixHyphenatedNumbers(src) {
+  return transformOutsideStrings(src, chunk =>
+    chunk.replace(
+      /([:,\[\s])(\d+(?:-\d+)+)(?=[\s,\]}\n]|$)/g,
+      (_, before, val) => `${before}"${val}"`
+    )
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pass 11 — Single → double quotes
 // ─────────────────────────────────────────────────────────────────────────────
 
 function singleToDouble(src) {
@@ -268,7 +422,7 @@ function singleToDouble(src) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pass 9 — Quote unquoted object keys
+// Pass 12 — Quote unquoted object keys
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -285,7 +439,7 @@ function quoteUnquotedKeys(src) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pass 10 — Insert missing colon (key-position strings only)
+// Pass 13 — Insert missing colon (key-position strings only)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -336,7 +490,7 @@ function insertMissingColons(src) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pass 11 — Remove trailing commas
+// Pass 14 — Remove trailing commas
 // ─────────────────────────────────────────────────────────────────────────────
 
 function removeTrailingCommas(src) {
@@ -346,7 +500,7 @@ function removeTrailingCommas(src) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pass 12 — Insert missing commas (whitespace gaps + direct adjacency)
+// Pass 15 — Insert missing commas (whitespace gaps + direct adjacency)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -432,7 +586,7 @@ function insertMissingCommas(src) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pass 13 — Close unclosed brackets/braces (positional recovery)
+// Pass 16 — Close unclosed brackets/braces (positional recovery)
 // ─────────────────────────────────────────────────────────────────────────────
 
 const RECOVERY_LOOKAHEAD = 40
